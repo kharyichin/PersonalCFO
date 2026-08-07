@@ -9,6 +9,28 @@ import ChatPanel, { type ChatMessage } from "./ChatPanel";
 
 const USER_ID = "demo_user";
 
+/**
+ * True above the `lg` breakpoint. Defaults to desktop so the primary demo
+ * surface (a laptop) renders correctly on first paint with no layout flash —
+ * only mobile visitors see a brief correction once the media query resolves.
+ *
+ * This exists so CFOApp renders exactly ONE layout tree, not both toggled by
+ * CSS: mounting ChatPanel twice (once per layout) gave each copy its own
+ * scroll ref, and whichever copy wasn't visible could still catch a
+ * programmatic click, leaving the visible one never scrolled.
+ */
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(true);
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    setIsDesktop(mql.matches);
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+  return isDesktop;
+}
+
 export default function CFOApp() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -17,6 +39,7 @@ export default function CFOApp() {
   const [learned, setLearned] = useState<Memory[] | null>(null);
   const [recalledIds, setRecalledIds] = useState<string[]>([]);
   const [mobileTab, setMobileTab] = useState<"money" | "chat" | "memory">("chat");
+  const isDesktop = useIsDesktop();
 
   // Initial load
   useEffect(() => {
@@ -123,43 +146,15 @@ export default function CFOApp() {
     [flashRecall, refreshMemories]
   );
 
-  const columns = (
-    <>
-      <aside className="hidden w-[310px] shrink-0 border-r border-line lg:block">
-        <FinancialPanel data={dashboard} />
-      </aside>
-
-      <main className="min-w-0 flex-1 bg-surface">
-        <ChatPanel
-          messages={messages}
-          pending={pending}
-          onSend={send}
-          onNewConversation={() => setMessages([])}
-          memoryCount={memories.length}
-        />
-      </main>
-
-      <aside className="hidden w-[330px] shrink-0 border-l border-line xl:block">
-        <MemoryPanel
-          memories={memories}
-          recalledIds={recalledIds}
-          onForget={forget}
-          onTeach={teach}
-        />
-      </aside>
-    </>
-  );
-
   return (
     <div className="flex h-screen flex-col">
-      {/* Desktop: three columns — data, CFO, memory */}
-      <div className="hidden flex-1 overflow-hidden lg:flex">{columns}</div>
+      {isDesktop ? (
+        <div className="flex flex-1 overflow-hidden">
+          <aside className="w-[310px] shrink-0 border-r border-line">
+            <FinancialPanel data={dashboard} />
+          </aside>
 
-      {/* Small screens: one column at a time */}
-      <div className="flex flex-1 flex-col overflow-hidden lg:hidden">
-        <div className="flex-1 overflow-hidden">
-          {mobileTab === "money" && <FinancialPanel data={dashboard} />}
-          {mobileTab === "chat" && (
+          <main className="min-w-0 flex-1 bg-surface">
             <ChatPanel
               messages={messages}
               pending={pending}
@@ -167,38 +162,62 @@ export default function CFOApp() {
               onNewConversation={() => setMessages([])}
               memoryCount={memories.length}
             />
-          )}
-          {mobileTab === "memory" && (
+          </main>
+
+          <aside className="hidden w-[330px] shrink-0 border-l border-line xl:block">
             <MemoryPanel
               memories={memories}
               recalledIds={recalledIds}
               onForget={forget}
               onTeach={teach}
             />
-          )}
+          </aside>
         </div>
-        <nav className="flex border-t border-line bg-surface">
-          {(
-            [
-              ["money", "Money"],
-              ["chat", "CFO"],
-              ["memory", `Memory${memories.length ? ` · ${memories.length}` : ""}`],
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              onClick={() => setMobileTab(key)}
-              className={`flex-1 py-3.5 text-[12px] transition-colors ${
-                mobileTab === key
-                  ? "font-medium text-ink"
-                  : "text-ink-faint hover:text-ink-soft"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      ) : (
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-hidden">
+            {mobileTab === "money" && <FinancialPanel data={dashboard} />}
+            {mobileTab === "chat" && (
+              <ChatPanel
+                messages={messages}
+                pending={pending}
+                onSend={send}
+                onNewConversation={() => setMessages([])}
+                memoryCount={memories.length}
+              />
+            )}
+            {mobileTab === "memory" && (
+              <MemoryPanel
+                memories={memories}
+                recalledIds={recalledIds}
+                onForget={forget}
+                onTeach={teach}
+              />
+            )}
+          </div>
+          <nav className="flex border-t border-line bg-surface">
+            {(
+              [
+                ["money", "Money"],
+                ["chat", "CFO"],
+                ["memory", `Memory${memories.length ? ` · ${memories.length}` : ""}`],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setMobileTab(key)}
+                className={`flex-1 py-3.5 text-[12px] transition-colors ${
+                  mobileTab === key
+                    ? "font-medium text-ink"
+                    : "text-ink-faint hover:text-ink-soft"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
 
       <LearnedToast learned={learned} onDone={() => setLearned(null)} />
     </div>

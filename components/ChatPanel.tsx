@@ -88,7 +88,13 @@ export default function ChatPanel({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    // Instant, not smooth: smooth-scroll animations are unreliable across
+    // browsers (can get dropped or undershoot) — not a risk worth taking on
+    // the one interaction that has to land every time during a demo.
+    // evidence/memories_used arrive on the message object itself (not a
+    // later fetch), so DOM layout for the full message is already committed
+    // by the time this effect runs — no need to defer to a later frame.
+    endRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages, pending]);
 
   function submit(text: string) {
@@ -105,25 +111,26 @@ export default function ChatPanel({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-line px-8 py-5">
-        <div className="flex items-baseline gap-2.5">
-          <h1 className="font-serif text-[19px] leading-none">Personal CFO</h1>
-          <span className="text-[11.5px] text-ink-faint">
+      <header className="flex items-center justify-between border-b border-line px-4 py-4 sm:px-8 sm:py-5">
+        <div className="flex items-baseline gap-2.5 min-w-0">
+          <h1 className="shrink-0 font-serif text-[19px] leading-none">Personal CFO</h1>
+          <span className="hidden truncate text-[11.5px] text-ink-faint sm:inline">
             Knows what you spent. Remembers what matters.
           </span>
         </div>
         {!empty && (
           <button
             onClick={onNewConversation}
-            className="rounded-lg border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-ink-faint hover:text-ink"
+            className="shrink-0 rounded-lg border border-line px-2.5 py-1.5 text-[11.5px] text-ink-soft transition-colors hover:border-ink-faint hover:text-ink"
             title="Clears the chat. Your CFO keeps its memories."
           >
-            New conversation
+            <span className="sm:hidden">New</span>
+            <span className="hidden sm:inline">New conversation</span>
           </button>
         )}
       </header>
 
-      <div className="flex-1 overflow-y-auto scroll-quiet px-8 py-7">
+      <div className="flex-1 overflow-y-auto scroll-quiet px-4 py-6 sm:px-8 sm:py-7">
         {empty ? (
           <div className="mx-auto flex h-full max-w-[560px] flex-col justify-center">
             <div className="animate-rise">

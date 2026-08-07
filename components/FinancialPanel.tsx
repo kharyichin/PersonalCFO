@@ -70,7 +70,7 @@ export default function FinancialPanel({ data }: { data: Dashboard | null }) {
   const delta = data.monthly_spend - data.average_spend;
   const deltaPct = pctChange(data.monthly_spend, data.average_spend);
   const max = Math.max(...data.top_categories.map((c) => c.amount));
-  const categories = data.top_categories.slice(0, 6);
+  const categories = data.top_categories.slice(0, 4);
 
   // The most interesting category is the one furthest from normal, not the
   // biggest — housing is always biggest and never worth mentioning. "Other" is
@@ -82,25 +82,25 @@ export default function FinancialPanel({ data }: { data: Dashboard | null }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-baseline justify-between px-7 pb-5 pt-7">
+      <header className="flex items-baseline justify-between px-7 pb-3 pt-5">
         <span className="eyebrow">Your money</span>
         <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px] font-medium tracking-wide text-ink-faint">
           Snowflake
         </span>
       </header>
 
-      <div className="flex-1 overflow-y-auto scroll-quiet px-7 pb-7">
+      <div className="flex-1 overflow-y-auto scroll-quiet px-7 pb-4">
         {/* Hero figure */}
         <div className="animate-rise">
           <div className="text-[12px] text-ink-faint">{data.month_label ?? "This month"}</div>
-          <div className="tnum mt-1 font-serif text-[56px] leading-[1.05] tracking-tight">
+          <div className="tnum mt-1 font-serif text-[40px] leading-[1.05] tracking-tight">
             {money(spend)}
           </div>
           <div className="mt-1 text-[13px] text-ink-soft">Total spending</div>
         </div>
 
         <div
-          className="mt-7 grid grid-cols-2 gap-5 border-t border-line pt-6 animate-rise"
+          className="mt-4 grid grid-cols-2 gap-5 border-t border-line pt-4 animate-rise"
           style={{ animationDelay: "80ms" }}
         >
           <Stat
@@ -113,11 +113,11 @@ export default function FinancialPanel({ data }: { data: Dashboard | null }) {
 
         {/* Categories */}
         <div
-          className="mt-8 animate-rise"
+          className="mt-5 animate-rise"
           style={{ animationDelay: "160ms" }}
         >
-          <div className="eyebrow mb-4">Where it went</div>
-          <ul className="space-y-3.5">
+          <div className="eyebrow mb-2">Where it went</div>
+          <ul className="space-y-2">
             {categories.map((c, i) => {
               const diff = c.amount - c.normal;
               const pct = pctChange(c.amount, c.normal);
@@ -158,15 +158,15 @@ export default function FinancialPanel({ data }: { data: Dashboard | null }) {
 
         {/* Insight */}
         <div
-          className="mt-8 rounded-xl border border-line bg-surface p-4 animate-rise"
+          className="mt-4 rounded-xl border border-line bg-surface p-3 animate-rise"
           style={{ animationDelay: "260ms" }}
         >
-          <div className="eyebrow mb-2 text-terra">Worth knowing</div>
+          <div className="eyebrow mb-1.5 text-terra">Worth knowing</div>
           <p className="text-[13px] leading-relaxed text-ink">
             {notable.name} is {Math.abs(notablePct)}% above your normal spending
             this month.
           </p>
-          <p className="mt-2 text-[12px] leading-relaxed text-ink-faint">
+          <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
             Most of that is food delivery — {money(284)} more than usual, while
             groceries fell {money(189)}.
           </p>
@@ -174,7 +174,7 @@ export default function FinancialPanel({ data }: { data: Dashboard | null }) {
 
         {data.savings_goal && (
           <div
-            className="mt-4 rounded-xl border border-green-line bg-green-soft p-4 animate-rise"
+            className="mt-2.5 rounded-xl border border-green-line bg-green-soft p-3 animate-rise"
             style={{ animationDelay: "320ms" }}
           >
             <div className="flex items-baseline justify-between">
@@ -183,7 +183,7 @@ export default function FinancialPanel({ data }: { data: Dashboard | null }) {
                 {money(data.savings_goal.saved)} / {money(data.savings_goal.target)}
               </span>
             </div>
-            <div className="mt-2.5 h-[3px] overflow-hidden rounded-full bg-green/15">
+            <div className="mt-2 h-[3px] overflow-hidden rounded-full bg-green/15">
               <div
                 className="h-full rounded-full bg-green animate-sweep"
                 style={{
