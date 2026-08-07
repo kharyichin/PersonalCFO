@@ -39,6 +39,7 @@ export default function CFOApp() {
   const [learned, setLearned] = useState<Memory[] | null>(null);
   const [recalledIds, setRecalledIds] = useState<string[]>([]);
   const [mobileTab, setMobileTab] = useState<"money" | "chat" | "memory">("chat");
+  const [deepDivingId, setDeepDivingId] = useState<string | null>(null);
   const isDesktop = useIsDesktop();
 
   // Initial load
@@ -89,6 +90,8 @@ export default function CFOApp() {
             evidence: data.evidence,
             memories_used: data.memories_used,
             lookup: data.memory_lookup ?? null,
+            question,
+            cortexAvailable: Boolean(data.cortex_available),
           },
         ]);
 
@@ -121,6 +124,60 @@ export default function CFOApp() {
     },
     [memories, flashRecall, refreshMemories]
   );
+
+  /** Ask the real Cortex Agent to re-analyze a question. Slow (~40s observed),
+   *  so this is opt-in per message — see ChatPanel's "deeper answer" button. */
+  const deepDive = useCallback(async (messageId: string, question: string) => {
+    setDeepDivingId(messageId);
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: USER_ID, question, deep_dive: true }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `cx-err-${Date.now()}`,
+            role: "cortex-error",
+            text: "Cortex didn't respond in time. Its full transaction-level analysis usually takes under a minute — try again in a moment.",
+          },
+        ]);
+        return;
+      }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `cx-${Date.now()}`,
+          role: "cortex",
+          text: data.answer,
+          evidence: data.evidence,
+          memories_used: data.memories_used,
+          lookup: data.memory_lookup ?? null,
+        },
+      ]);
+
+      const usedIds = (data.memories_used ?? [])
+        .map((m: { id?: string }) => m.id)
+        .filter(Boolean) as string[];
+      if (usedIds.length) flashRecall(usedIds);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `cx-err-${Date.now()}`,
+          role: "cortex-error",
+          text: "Couldn't reach Cortex just then. Try again in a moment.",
+        },
+      ]);
+    } finally {
+      setDeepDivingId(null);
+    }
+  }, [flashRecall]);
 
   const forget = useCallback(async (id: string) => {
     setMemories((prev) => prev.filter((m) => m.id !== id));
@@ -161,6 +218,8 @@ export default function CFOApp() {
               onSend={send}
               onNewConversation={() => setMessages([])}
               memoryCount={memories.length}
+              onDeepDive={deepDive}
+              deepDivingId={deepDivingId}
             />
           </main>
 
@@ -184,6 +243,8 @@ export default function CFOApp() {
                 onSend={send}
                 onNewConversation={() => setMessages([])}
                 memoryCount={memories.length}
+                onDeepDive={deepDive}
+                deepDivingId={deepDivingId}
               />
             )}
             {mobileTab === "memory" && (

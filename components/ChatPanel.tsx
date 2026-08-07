@@ -5,11 +5,15 @@ import Tooltip from "./ui/Tooltip";
 
 export type ChatMessage = {
   id: string;
-  role: "user" | "cfo";
+  role: "user" | "cfo" | "cortex" | "cortex-error";
   text: string;
   evidence?: { label: string; value: string; tone?: "up" | "down" | "flat" }[];
   memories_used?: { id?: string; text: string; recalled_by_everos?: boolean }[];
   lookup?: { recalled: number; ms: number } | null;
+  /** The question this answered — needed to re-ask Cortex for a deep dive. */
+  question?: string;
+  /** Only meaningful on "cfo" messages: is Cortex configured to try? */
+  cortexAvailable?: boolean;
 };
 
 const SUGGESTIONS = [
@@ -76,6 +80,8 @@ export default function ChatPanel({
   onSend,
   onNewConversation,
   memoryCount = 0,
+  onDeepDive,
+  deepDivingId,
 }: {
   messages: ChatMessage[];
   pending: boolean;
@@ -83,6 +89,11 @@ export default function ChatPanel({
   onNewConversation: () => void;
   /** Drives whether the CFO asks for context first. */
   memoryCount?: number;
+  /** Ask the real Cortex Agent to re-analyze a given answer — slow (~40s),
+   *  so it's opt-in per message rather than automatic. */
+  onDeepDive?: (messageId: string, question: string) => void;
+  /** Message id currently waiting on a Cortex response, if any. */
+  deepDivingId?: string | null;
 }) {
   const [value, setValue] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
@@ -194,27 +205,64 @@ export default function ChatPanel({
           </div>
         ) : (
           <div className="mx-auto max-w-[620px] space-y-7">
-            {messages.map((m) =>
-              m.role === "user" ? (
-                <div key={m.id} className="flex justify-end animate-rise">
-                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-sunk px-4 py-2.5 text-[14px] leading-relaxed text-ink">
+            {messages.map((m) => {
+              if (m.role === "user") {
+                return (
+                  <div key={m.id} className="flex justify-end animate-rise">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-sunk px-4 py-2.5 text-[14px] leading-relaxed text-ink">
+                      {m.text}
+                    </div>
+                  </div>
+                );
+              }
+
+              if (m.role === "cortex-error") {
+                return (
+                  <div
+                    key={m.id}
+                    className="animate-rise rounded-xl border border-terra/25 bg-terra-soft px-4 py-3 text-[13px] leading-relaxed text-ink"
+                  >
                     {m.text}
                   </div>
-                </div>
-              ) : (
+                );
+              }
+
+              const isCortex = m.role === "cortex";
+              const isDeepDiving = deepDivingId === m.id;
+
+              return (
                 <div key={m.id} className="animate-rise">
                   <div className="mb-2.5 flex items-center gap-2">
-                    <span className="eyebrow">Your CFO</span>
-                    {m.lookup && m.lookup.recalled > 0 && (
-                      <Tooltip content="A live EverOS search for this exact question — not scripted.">
-                        <span className="cursor-help rounded-full bg-memory-soft px-2 py-0.5 text-[10px] font-medium text-memory">
-                          recalled {m.lookup.recalled} from EverOS · {m.lookup.ms}ms
-                        </span>
-                      </Tooltip>
+                    {isCortex ? (
+                      <>
+                        <span className="eyebrow text-green">Cortex Agent</span>
+                        <Tooltip content="Real analysis over your actual transactions — not the fast template answer above.">
+                          <span className="cursor-help rounded-full bg-green-soft px-2 py-0.5 text-[10px] font-medium text-green">
+                            deep dive
+                          </span>
+                        </Tooltip>
+                      </>
+                    ) : (
+                      <>
+                        <span className="eyebrow">Your CFO</span>
+                        {m.lookup && m.lookup.recalled > 0 && (
+                          <Tooltip content="A live EverOS search for this exact question — not scripted.">
+                            <span className="cursor-help rounded-full bg-memory-soft px-2 py-0.5 text-[10px] font-medium text-memory">
+                              recalled {m.lookup.recalled} from EverOS · {m.lookup.ms}ms
+                            </span>
+                          </Tooltip>
+                        )}
+                      </>
                     )}
                   </div>
 
-                  <div className="text-[14.5px] leading-[1.65] text-ink-soft">
+                  <div
+                    className={
+                      isCortex
+                        ? "rounded-xl border border-green-line bg-green-soft/40 p-4 text-[14px] leading-[1.65] text-ink"
+                        : "text-[14.5px] leading-[1.65] text-ink-soft"
+                    }
+                  >
                     <RichText text={m.text} />
                   </div>
 
@@ -260,9 +308,38 @@ export default function ChatPanel({
                       </ul>
                     </div>
                   )}
+
+                  {!isCortex && m.cortexAvailable && m.question && onDeepDive && (
+                    <div className="mt-3.5">
+                      {isDeepDiving ? (
+                        <div className="flex items-center gap-2.5 text-[12px] text-green">
+                          <span className="flex gap-1">
+                            {[0, 1, 2].map((i) => (
+                              <span
+                                key={i}
+                                className="h-1 w-1 rounded-full bg-green"
+                                style={{
+                                  animation: "dot-pulse 1.1s ease-in-out infinite",
+                                  animationDelay: `${i * 0.15}s`,
+                                }}
+                              />
+                            ))}
+                          </span>
+                          Cortex is digging into your actual transactions — this takes under a minute…
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => onDeepDive(m.id, m.question!)}
+                          className="text-[12px] font-medium text-green underline decoration-green/30 underline-offset-2 hover:decoration-green"
+                        >
+                          Ask Cortex for a deeper answer →
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
-              )
-            )}
+              );
+            })}
 
             {pending && <Thinking />}
             <div ref={endRef} />

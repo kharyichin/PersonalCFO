@@ -1,23 +1,22 @@
 /**
- * Cortex Agent — the reasoning swap-in point.
+ * Cortex Agent — real transaction-level reasoning, on demand.
  *
- * Today /api/ask answers with lib/cfo/engine.ts (deterministic, no model
- * call). When the teammate's Cortex Agent is ready, set CORTEX_URL and every
- * question routes there instead — no other file changes.
+ * Cortex digs into actual merchant-level detail (currency conversions,
+ * specific line items) that the fast local engine (lib/cfo/engine.ts)
+ * can't see — but it took ~40s to answer in testing. Too slow to be the
+ * default for every chat message, so the main /api/ask flow never calls
+ * this automatically regardless of whether CORTEX_URL is set. It's only
+ * invoked by the explicit "Ask Cortex for a deeper answer" action
+ * (deep_dive: true on the request) — see app/api/ask/route.ts.
  *
  * Contract: POST CORTEX_URL with CortexRequest, expect CortexAnswer back.
- * Same shape as the local engine's output, so the frontend can't tell (and
- * doesn't need to) which one answered.
- *
- * On any failure — unset URL, timeout, non-200, malformed JSON — this
- * returns null and the caller falls back to the local engine. A demo should
- * never go blank because a teammate's service hiccuped on stage.
  */
 
 import type { Category, Memory } from "@/lib/types";
 
 const CORTEX_URL = process.env.CORTEX_URL;
-const TIMEOUT_MS = 8000;
+/** Generous — this is a deliberate, user-triggered wait, not the hot path. */
+const DEEP_DIVE_TIMEOUT_MS = 70_000;
 
 export const cortexConfigured = Boolean(CORTEX_URL);
 
@@ -50,30 +49,33 @@ export async function askCortex(req: CortexRequest): Promise<CortexAnswer | null
   if (!CORTEX_URL) return null;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), DEEP_DIVE_TIMEOUT_MS);
 
   try {
     const res = await fetch(CORTEX_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "ngrok-skip-browser-warning": "true",
+      },
       body: JSON.stringify(req),
       signal: controller.signal,
       cache: "no-store",
     });
 
     if (!res.ok) {
-      console.error(`[cortex] HTTP ${res.status}, falling back to local engine`);
+      console.error(`[cortex] HTTP ${res.status}`);
       return null;
     }
 
     const data = (await res.json()) as CortexAnswer;
     if (!data.answer || typeof data.answer !== "string") {
-      console.error("[cortex] response missing 'answer' string, falling back");
+      console.error("[cortex] response missing 'answer' string");
       return null;
     }
     return data;
   } catch (err) {
-    console.error("[cortex] request failed, falling back to local engine:", err);
+    console.error("[cortex] request failed or timed out:", err);
     return null;
   } finally {
     clearTimeout(timer);
