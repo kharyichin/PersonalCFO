@@ -89,18 +89,23 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json({
-      answer: cortexAnswer.answer,
-      memories_used,
-      evidence: cortexAnswer.evidence,
-      financial_context: financialContext(dashboard),
-      memory_lookup: {
-        source: "EverOS",
-        configured: everosConfigured,
-        recalled: recalledSessions.size,
-        ms: Date.now() - started,
-      },
-      answered_by: "cortex",
-    });
+  answer: cortexAnswer.answer,
+  memories_used,
+  evidence: cortexAnswer.evidence,
+
+  usage: cortexAnswer.usage,
+
+  financial_context: financialContext(dashboard),
+
+  memory_lookup: {
+    source: "EverOS",
+    configured: everosConfigured,
+    recalled: recalledSessions.size,
+    ms: Date.now() - started,
+  },
+
+  answered_by: "cortex",
+});
   }
 
   // ---- Path 1: this message teaches the CFO something -------------------

@@ -41,8 +41,24 @@ export type CortexRequest = {
 
 export type CortexAnswer = {
   answer: string;
-  memories_used?: { id?: string; text: string; source?: string }[];
-  evidence?: { label: string; value: string; tone?: "up" | "down" | "flat" }[];
+
+  memories_used?: {
+    id?: string;
+    text: string;
+    source?: string;
+  }[];
+
+  evidence?: {
+    label: string;
+    value: string;
+    tone?: "up" | "down" | "flat";
+  }[];
+
+  usage?: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+  };
 };
 
 export async function askCortex(req: CortexRequest): Promise<CortexAnswer | null> {
