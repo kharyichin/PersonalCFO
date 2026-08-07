@@ -93,6 +93,45 @@ function matchCategory(d: Dashboard, hint: string | null | undefined): Category 
   return scored[0]?.c ?? null;
 }
 
+/**
+ * Same protection language memory-extract.ts looks for at teach-time, plus
+ * the space-separated "non negotiable" that PROTECT_RE in that file was
+ * missing (it only matched "non-negotiable"/"nonnegotiable"). Kept as a
+ * second, independent check here — see resolveProtected() below for why.
+ */
+const PROTECT_SIGNAL_RE =
+  /\b(don'?t|do not|never|please don'?t)\b[^.!?]*\b(cut|reduce|touch|trim|lower)\b|\bis (really |very |super |genuinely )?important to me\b|\bis a priority\b|\bmatters to me\b|\bnon[\s-]?negotiable\b|\bnot negotiable\b/i;
+
+/**
+ * A memory protects a category if it was tagged "protect" at teach-time —
+ * OR, as a safety net, if its own raw wording still reads as protective
+ * even though it landed under a different kind. Teach-time classification
+ * is regex-based and can miss phrasings we didn't anticipate (confirmed:
+ * "Travel is non negotiable to me" — a space, not a hyphen — fell through
+ * to a generic, uncategorized memory). Cortex doesn't have this problem
+ * because it reasons over the raw quote directly; the fast local engine
+ * only had the teach-time tag to go on, so a classification miss meant it
+ * would happily recommend cutting a category the user explicitly protected.
+ * Re-scanning raw text here closes that gap regardless of how the memory
+ * was tagged when it was taught.
+ */
+function resolveProtected(
+  dashboard: Dashboard,
+  memories: Memory[]
+): { memory: Memory; category: string }[] {
+  const seen = new Set<string>();
+  const out: { memory: Memory; category: string }[] = [];
+  for (const m of memories) {
+    const text = m.quote ?? m.text;
+    if (m.kind !== "protect" && !PROTECT_SIGNAL_RE.test(text)) continue;
+    const match = matchCategory(dashboard, m.category) ?? matchCategory(dashboard, text);
+    if (!match || seen.has(match.name)) continue;
+    seen.add(match.name);
+    out.push({ memory: m, category: match.name });
+  }
+  return out;
+}
+
 function describeCategory(c: Category): string {
   const diff = c.amount - c.normal;
   return `${money(diff)} above your normal — ${money(c.amount)} this month against a typical ${money(c.normal)}`;
@@ -124,7 +163,7 @@ export function answerQuestion(
   const intent = classify(question);
   const ctx = financialContext(dashboard);
 
-  const protectedMems = memories.filter((m) => m.kind === "protect" && m.category);
+  const protected_ = resolveProtected(dashboard, memories);
   const reduceMems = memories.filter((m) => m.kind === "reduce");
   const goalMems = memories.filter((m) => m.kind === "goal");
 
@@ -133,23 +172,19 @@ export function answerQuestion(
 
   // Dashboard categories that match something the user asked to protect —
   // excluded from anything this engine recommends cutting.
-  const protectedCategoryNames = new Set(
-    protectedMems
-      .map((m) => matchCategory(dashboard, m.category)?.name)
-      .filter(Boolean) as string[]
-  );
+  const protectedCategoryNames = new Set(protected_.map((p) => p.category));
 
   switch (intent) {
     case "cut": {
       const lines: string[] = [];
       const used: Memory[] = [];
 
-      const protectedNames = protectedMems.map((m) => m.category!);
+      const protectedNames = protected_.map((p) => p.category);
       if (protectedNames.length) {
         lines.push(
           `I wouldn't start with ${protectedNames.join(" or ").toLowerCase()} — you've told me that's a priority, so I've left it out of this.`
         );
-        used.push(...protectedMems);
+        used.push(...protected_.map((p) => p.memory));
       }
 
       const candidates = risingCategories(dashboard).filter(
@@ -380,11 +415,11 @@ export function answerQuestion(
         used.push(reduceMems[0]);
       }
 
-      if (protectedMems.length) {
+      if (protected_.length) {
         lines.push(
-          `And I'm not suggesting you touch ${protectedMems.map((m) => m.category!.toLowerCase()).join(" or ")} to pay for it.`
+          `And I'm not suggesting you touch ${protected_.map((p) => p.category.toLowerCase()).join(" or ")} to pay for it.`
         );
-        used.push(...protectedMems);
+        used.push(...protected_.map((p) => p.memory));
       }
 
       return {

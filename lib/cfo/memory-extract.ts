@@ -69,7 +69,7 @@ function categoryIn(text: string, knownCategories: string[] = []): string | null
 
 /** Does this message look like the user telling us something to remember? */
 const PROTECT_RE =
-  /(don'?t|do not|never|please don'?t)\b[^.!?]*\b(cut|reduce|touch|trim|lower|suggest cutting)\b|\bis (really |very |super |genuinely )?important to me\b|\bis a priority\b|\bmatters to me\b|\bnon-?negotiable\b/i;
+  /(don'?t|do not|never|please don'?t)\b[^.!?]*\b(cut|reduce|touch|trim|lower|suggest cutting)\b|\bis (really |very |super |genuinely )?important to me\b|\bis a priority\b|\bmatters to me\b|\bnon[\s-]?negotiable\b|\bnot negotiable\b/i;
 
 // No bare "reduce"/"spend less on" fallback here on purpose — that used to
 // match ANY message containing those words, including plain questions like
