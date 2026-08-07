@@ -1,26 +1,184 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ============================================================
+   Personal CFO — design tokens
+   Calm, premium, editorial. Light theme only (deliberate:
+   guarantees the demo looks identical on every judge's laptop).
+   ============================================================ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-paper: #faf9f6;
+  --color-surface: #ffffff;
+  --color-sunk: #f4f2ec;
+
+  --color-ink: #14140f;
+  --color-ink-soft: #5c5a52;
+  --color-ink-faint: #8e8b80;
+
+  --color-line: #e8e5dd;
+  --color-line-soft: #f1eee7;
+
+  /* financial / positive */
+  --color-green: #2f5d4e;
+  --color-green-soft: #edf3f0;
+  --color-green-line: #d3e2db;
+
+  /* memory — warm, human, "remembered" */
+  --color-memory: #8a6a38;
+  --color-memory-soft: #f8f2e7;
+  --color-memory-line: #ebdcc2;
+
+  /* attention — muted terracotta, never alarming */
+  --color-terra: #a3543f;
+  --color-terra-soft: #f9efeb;
+
   --font-sans: var(--font-geist-sans);
+  --font-serif: var(--font-instrument-serif);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers should never jitter when they change */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Small uppercase section labels — the editorial backbone of the UI */
+.eyebrow {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-ink-faint);
+}
+
+/* ---------- Motion: restrained, purposeful ---------- */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+/* The key micro-interaction: a memory glows when the CFO uses it */
+@keyframes memory-recall {
+  0% {
+    box-shadow: 0 0 0 0 rgba(138, 106, 56, 0);
+    border-color: var(--color-memory-line);
+  }
+  35% {
+    box-shadow: 0 0 0 5px rgba(138, 106, 56, 0.13);
+    border-color: var(--color-memory);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(138, 106, 56, 0);
+    border-color: var(--color-memory-line);
+  }
+}
+
+@keyframes dot-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.animate-rise {
+  animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.animate-toast-in {
+  animation: toast-in 0.4s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.animate-toast-out {
+  animation: toast-out 0.3s ease-in forwards;
+}
+.animate-recall {
+  animation: memory-recall 1.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.animate-sweep {
+  transform-origin: left;
+  animation: sweep 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- Quiet scrollbars ---------- */
+
+.scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: #ddd9cf transparent;
+}
+.scroll-quiet::-webkit-scrollbar {
+  width: 7px;
+}
+.scroll-quiet::-webkit-scrollbar-thumb {
+  background: #ddd9cf;
+  border-radius: 99px;
+}
+.scroll-quiet::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Focus states that look intentional, not default-browser */
+:focus-visible {
+  outline: 2px solid var(--color-green);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
