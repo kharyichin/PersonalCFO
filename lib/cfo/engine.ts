@@ -48,7 +48,7 @@ function parseItem(question: string): string | null {
 
 const cite = (m: Memory) => ({ id: m.id, text: m.text, source: m.source });
 
-function financialContext(d: Dashboard) {
+export function financialContext(d: Dashboard) {
   // "Other" is a catch-all, never a useful answer to "what moved?".
   const biggest = [...d.top_categories]
     .filter((c) => c.name !== "Other")

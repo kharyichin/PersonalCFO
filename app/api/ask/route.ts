@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { everosConfigured, recallMemories, rememberTurn } from "@/lib/everos";
 import { addMemory, getMemories, markExtracted } from "@/lib/memory-store";
 import { extractAll } from "@/lib/cfo/memory-extract";
-import { acknowledgeMemory, answerQuestion } from "@/lib/cfo/engine";
+import { acknowledgeMemory, answerQuestion, financialContext } from "@/lib/cfo/engine";
+import { askCortex, cortexConfigured, toCortexMemories } from "@/lib/cortex";
 import { DEMO_DASHBOARD } from "@/lib/finance/data";
 import type { AskRequest, AskResponse, Dashboard } from "@/lib/types";
 
@@ -101,7 +102,31 @@ export async function POST(request: Request) {
     );
   }
 
-  const response = answerQuestion(question, dashboard, stored);
+  // Cortex Agent, if wired up (CORTEX_URL set) — else the local engine.
+  // Cortex gets the same figures and memories the local engine uses, so
+  // switching between them is invisible to the frontend.
+  const cortexAnswer = cortexConfigured
+    ? await askCortex({
+        user_id: userId,
+        question,
+        financial_context: {
+          monthly_spend: dashboard.monthly_spend,
+          average_spend: dashboard.average_spend,
+          savings_rate: dashboard.savings_rate,
+          top_categories: dashboard.top_categories,
+        },
+        memories: toCortexMemories(stored),
+      })
+    : null;
+
+  const response = cortexAnswer
+    ? {
+        answer: cortexAnswer.answer,
+        memories_used: cortexAnswer.memories_used ?? [],
+        evidence: cortexAnswer.evidence,
+        financial_context: financialContext(dashboard),
+      }
+    : answerQuestion(question, dashboard, stored);
 
   // Flag which cited memories EverOS independently surfaced for this query.
   const memories_used = response.memories_used.map((m) => {
@@ -128,5 +153,6 @@ export async function POST(request: Request) {
       recalled: recalledSessions.size,
       ms: lookupMs,
     },
+    answered_by: cortexAnswer ? "cortex" : "local",
   });
 }

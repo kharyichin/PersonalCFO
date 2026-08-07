@@ -41,10 +41,52 @@ Open `http://localhost:3000`.
   instead of the built-in mock data — no frontend changes needed.
 - `POST /api/ask` — the CFO's answer engine. Detects whether the message is
   teaching it something (→ stored in EverOS) or asking a question (→
-  answered using Snowflake figures + EverOS-recalled memories). This route
-  is the one seam to wire in the real Cortex Agent later.
+  answered using Snowflake figures + EverOS-recalled memories, either by the
+  local engine or by Cortex if `CORTEX_URL` is set — see below).
 - `GET|POST|DELETE /api/memory` — read, add, or forget a memory directly
   (used by the "Teach your CFO something" composer in the memory panel).
+
+## Plugging in the Cortex Agent
+
+`lib/cortex.ts` is the integration point. Set `CORTEX_URL` in `.env.local`
+and every question in `/api/ask` routes there instead of the local engine —
+nothing else in the frontend changes. If Cortex is unset, times out (8s), or
+returns anything malformed, it silently falls back to the local engine so a
+teammate's service being down never blanks the demo.
+
+**What the frontend sends** (`POST` to `CORTEX_URL`):
+
+```jsonc
+{
+  "user_id": "demo_user",
+  "question": "What should I cut this month?",
+  "financial_context": {
+    "monthly_spend": 4218,
+    "average_spend": 3890,
+    "savings_rate": 31,
+    "top_categories": [{ "name": "Food & Dining", "amount": 620, "normal": 525 }, ...]
+  },
+  "memories": [
+    { "id": "mem-123", "text": "Travel is a priority", "quote": "Travel is important to me...", "kind": "protect", "category": "Travel" }
+  ]
+}
+```
+
+**What Cortex must return:**
+
+```jsonc
+{
+  "answer": "I wouldn't start with travel — you've told me that's a priority...",
+  "memories_used": [{ "id": "mem-123", "text": "Travel is a priority", "source": "EverOS" }],
+  "evidence": [{ "label": "Food delivery", "value": "+$284", "tone": "up" }]  // optional
+}
+```
+
+`memories` already comes from EverOS (fetched server-side before this call),
+so Cortex doesn't need its own EverOS client — just reason over what's
+handed to it. `memories_used` should be a subset of the `memories` it was
+given (echo back the `id`s it actually leaned on) so the UI can highlight
+them in the memory panel.
 
 ## How preferences get in
 
