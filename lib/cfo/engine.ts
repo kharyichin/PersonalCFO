@@ -175,7 +175,19 @@ export function answerQuestion(
         );
       }
 
-      if (reduceMems.length) used.push(...reduceMems);
+      // Only cite a reduce-memory if it's actually about a category this
+      // answer names (opportunity/runnerUp) — not just any "reduce
+      // something" memory in storage. Citing "wants to reduce food
+      // delivery" next to an answer that only discusses Fees would claim
+      // credit the memory didn't earn.
+      const discussedNames = new Set(
+        [opportunity.name, runnerUp?.name].filter(Boolean) as string[]
+      );
+      const relevantReduceMems = reduceMems.filter((m) => {
+        const match = matchCategory(dashboard, m.category);
+        return match && discussedNames.has(match.name);
+      });
+      if (relevantReduceMems.length) used.push(...relevantReduceMems);
 
       const goal = dashboard.savings_goal;
       const oppDelta = opportunity.amount - opportunity.normal;
@@ -184,7 +196,10 @@ export function answerQuestion(
         lines.push(
           `Bringing ${opportunity.name.toLowerCase()} back to normal would free up about ${money(oppDelta)} a month — roughly ${weeksPhrase(weeks)} closer to your ${goal.label.toLowerCase()}.`
         );
-        if (goalMems.length) used.push(...goalMems);
+        // Same logic for goals: cite only the first one. Multiple
+        // simultaneous goal memories can't all correspond to the single
+        // dashboard savings_goal figure this sentence actually cites.
+        if (goalMems.length) used.push(goalMems[0]);
       }
 
       return {
@@ -332,11 +347,16 @@ export function answerQuestion(
         lines.push(
           `You're putting away about ${money(pace)} a month and you've got ${money(goal.saved)} of your ${money(goal.target)} ${goal.label.toLowerCase()}. Buying ${thing} pushes that goal back by roughly ${weeksPhrase(weeksDelay)}.`
         );
-        if (goalMems.length) used.push(...goalMems);
+        // Cite only the first goal memory — the dashboard's single
+        // savings_goal figure can't honestly stand in for more than one.
+        if (goalMems.length) used.push(goalMems[0]);
       }
 
       // Fund it from somewhere they've already said they're happy to cut —
       // only if that category actually shows a real, meaningful surplus.
+      // Only reduceMems[0] is ever checked/named in the text below, so
+      // that's the only one that gets cited — not every reduce-memory in
+      // storage, which might be about a completely different category.
       if (reduceMems.length) {
         const match = matchCategory(dashboard, reduceMems[0].category);
         const surplus = match ? match.amount - match.normal : 0;
@@ -357,7 +377,7 @@ export function answerQuestion(
             `You've told me you'd rather cut back elsewhere than touch this — that preference stands, even though it's not one of the bigger swings this month.`
           );
         }
-        used.push(...reduceMems);
+        used.push(reduceMems[0]);
       }
 
       if (protectedMems.length) {
@@ -391,9 +411,14 @@ export function answerQuestion(
             : `${top.name} is your largest category at ${money(top.amount)}. The thing actually worth your attention is ${notable.name.toLowerCase()}, which is ${money(notable.amount - notable.normal)} above normal.`,
         `Ask me what to cut, why this month ran high, or whether you can afford something you're considering.`,
       ];
+      // This overview is pure numbers — largest category, notable swing,
+      // totals — it doesn't reason over any memory content, so there's
+      // nothing honest to cite here. (Previously cited up to 2 arbitrary
+      // stored memories regardless of relevance — same class of bug as
+      // the "cut" and "afford" cases above.)
       return {
         answer: lines.join("\n\n"),
-        memories_used: memories.length ? memories.slice(0, 2).map(cite) : [],
+        memories_used: [],
         financial_context: ctx,
       };
     }
