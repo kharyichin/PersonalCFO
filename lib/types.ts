@@ -78,6 +78,9 @@ export type AskResponse = {
   learned?: Memory | null;
   /** Optional supporting figures rendered under the answer. */
   evidence?: { label: string; value: string; tone?: "up" | "down" | "flat" }[];
+  /** Cortex deep-dive only — token usage for the EverOS-filtered vs.
+   *  full-history A/B comparison. */
+  usage?: { input_tokens: number; output_tokens: number; total_tokens: number };
 };
 
 /** POST /memory */

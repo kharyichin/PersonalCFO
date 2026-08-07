@@ -54,6 +54,41 @@ export async function POST(request: Request) {
       episodes.map((e) => e.session_id).filter(Boolean) as string[]
     );
 
+    // Only send Cortex what EverOS actually recalled as relevant to this
+    // question — not every memory ever taught. Previously this sent
+    // toCortexMemories(stored) (everything) regardless of the recall
+    // above, which made "recalled: 1" vs. "memories sent: 4" a real gap:
+    // the token-usage comparison wasn't measuring EverOS filtering at all,
+    // since Cortex got the same full memory set either way.
+    //
+    // Session-id matching alone isn't enough: we log every chat turn (not
+    // just explicit teachings) to EverOS for conversation continuity, so
+    // the episode EverOS recalls as "most relevant" is often a past Q&A
+    // exchange, not a teaching event — its session_id won't match any
+    // memory we track locally at all, even though it's a legitimate,
+    // on-topic recall. So a memory also counts as relevant if its own
+    // original wording shows up inside what got recalled — that's a
+    // second, independent relevance signal on top of the session match,
+    // not a replacement for it.
+    const recalledText = episodes
+      .map((e) => `${e.summary ?? ""} ${e.episode ?? ""}`)
+      .join(" ")
+      .toLowerCase();
+
+    const relevantMemories = everosConfigured
+      ? stored.filter((m) => {
+          if (recalledSessions.has(m.session_id)) return true;
+          if (!m.quote) return false;
+          const words = m.quote
+            .toLowerCase()
+            .split(/[^a-z]+/)
+            .filter((w) => w.length >= 4);
+          if (words.length === 0) return false;
+          const hits = words.filter((w) => recalledText.includes(w)).length;
+          return hits / words.length >= 0.4;
+        })
+      : stored;
+
     const cortexAnswer = await askCortex({
       user_id: userId,
       question,
@@ -63,7 +98,7 @@ export async function POST(request: Request) {
         savings_rate: dashboard.savings_rate,
         top_categories: dashboard.top_categories,
       },
-      memories: toCortexMemories(stored),
+      memories: toCortexMemories(relevantMemories),
     });
 
     if (!cortexAnswer) {
@@ -102,6 +137,12 @@ export async function POST(request: Request) {
     configured: everosConfigured,
     recalled: recalledSessions.size,
     ms: Date.now() - started,
+    // For the token-savings comparison: how many memories actually went to
+    // Cortex vs. how many exist in total. Should be recalled <= sent_to_cortex
+    // <= stored_total; sent_to_cortex == stored_total only when EverOS is
+    // unconfigured (no filtering possible).
+    sent_to_cortex: relevantMemories.length,
+    stored_total: stored.length,
   },
 
   answered_by: "cortex",

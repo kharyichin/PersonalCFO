@@ -84,12 +84,19 @@ export async function askCortex(req: CortexRequest): Promise<CortexAnswer | null
       return null;
     }
 
-    const data = (await res.json()) as CortexAnswer;
+    const data = (await res.json()) as CortexAnswer & {
+      // The live service actually sends `token_usage`, not `usage` — this
+      // was the real reason usage numbers never showed up: the forwarding
+      // code was correct, but nothing was ever there to forward. Accept
+      // either name so this keeps working if the field is ever renamed to
+      // match what the type originally documented.
+      token_usage?: CortexAnswer["usage"];
+    };
     if (!data.answer || typeof data.answer !== "string") {
       console.error("[cortex] response missing 'answer' string");
       return null;
     }
-    return data;
+    return { ...data, usage: data.usage ?? data.token_usage };
   } catch (err) {
     console.error("[cortex] request failed or timed out:", err);
     return null;

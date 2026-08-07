@@ -54,6 +54,19 @@ function RichText({ text }: { text: string }) {
   );
 }
 
+/** Cortex has no memory of its own prior turn — the deep-dive endpoint is a
+ *  single-shot question in, answer out. So a reply to "want me to model
+ *  that?" has to carry its own context: what Cortex said, and what the user
+ *  is replying with. Composed client-side so no backend contract change is
+ *  needed to support this. */
+function composeFollowUp(cortexPriorAnswer: string, userReply: string): string {
+  return [
+    `You (the CFO's Cortex analysis) previously said:\n"${cortexPriorAnswer}"`,
+    `The user is replying: "${userReply}"`,
+    `Respond directly to their reply, continuing the analysis above — don't restart or ask what they meant.`,
+  ].join("\n\n");
+}
+
 function Thinking() {
   return (
     <div className="flex items-center gap-2.5 text-[12.5px] text-ink-faint">
@@ -96,8 +109,16 @@ export default function ChatPanel({
   deepDivingId?: string | null;
 }) {
   const [value, setValue] = useState("");
+  const [followUpDrafts, setFollowUpDrafts] = useState<Record<string, string>>({});
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  function submitFollowUp(cortexMessage: ChatMessage, reply: string) {
+    const text = reply.trim();
+    if (!text || !onDeepDive || deepDivingId) return;
+    onDeepDive(cortexMessage.id, composeFollowUp(cortexMessage.text, text));
+    setFollowUpDrafts((prev) => ({ ...prev, [cortexMessage.id]: "" }));
+  }
 
   useEffect(() => {
     // Instant, not smooth: smooth-scroll animations are unreliable across
@@ -334,6 +355,50 @@ export default function ChatPanel({
                         >
                           Ask Cortex for a deeper answer →
                         </button>
+                      )}
+                    </div>
+                  )}
+
+                  {isCortex && m.text.trim().endsWith("?") && onDeepDive && (
+                    <div className="mt-4">
+                      {isDeepDiving ? (
+                        <div className="flex items-center gap-2.5 text-[12px] text-green">
+                          <span className="flex gap-1">
+                            {[0, 1, 2].map((i) => (
+                              <span
+                                key={i}
+                                className="h-1 w-1 rounded-full bg-green"
+                                style={{
+                                  animation: "dot-pulse 1.1s ease-in-out infinite",
+                                  animationDelay: `${i * 0.15}s`,
+                                }}
+                              />
+                            ))}
+                          </span>
+                          Cortex is working on that — this takes under a minute…
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => submitFollowUp(m, "Yes, please.")}
+                            disabled={Boolean(deepDivingId)}
+                            className="rounded-lg border border-green-line bg-green-soft px-3 py-1.5 text-[12px] font-medium text-green transition-colors hover:border-green disabled:opacity-40"
+                          >
+                            Yes, do that
+                          </button>
+                          <input
+                            value={followUpDrafts[m.id] ?? ""}
+                            onChange={(e) =>
+                              setFollowUpDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") submitFollowUp(m, followUpDrafts[m.id] ?? "");
+                            }}
+                            placeholder="Or reply your own way…"
+                            disabled={Boolean(deepDivingId)}
+                            className="flex-1 rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-green disabled:opacity-40"
+                          />
+                        </div>
                       )}
                     </div>
                   )}
