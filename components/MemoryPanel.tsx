@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { Memory } from "@/lib/types";
+import Tooltip from "./ui/Tooltip";
 
 function MemoryMark({ active }: { active: boolean }) {
   return (
@@ -64,9 +65,14 @@ export default function MemoryPanel({
     <div className="flex h-full flex-col">
       <header className="flex items-baseline justify-between px-7 pb-5 pt-7">
         <span className="eyebrow">What your CFO remembers</span>
-        <span className="rounded-full border border-memory-line bg-memory-soft px-2 py-0.5 text-[10px] font-medium tracking-wide text-memory">
-          EverOS
-        </span>
+        <Tooltip
+          content="Stored in EverOS — recalled in every future conversation, not just this one."
+          align="right"
+        >
+          <span className="cursor-help rounded-full border border-memory-line bg-memory-soft px-2 py-0.5 text-[10px] font-medium tracking-wide text-memory">
+            EverOS
+          </span>
+        </Tooltip>
       </header>
 
       <div className="px-7 pb-5">
@@ -158,9 +164,11 @@ export default function MemoryPanel({
                           <span>Remembered · {timeAgo(m.created_at)}</span>
                         )}
                         {active && (
-                          <span className="rounded-full bg-memory/12 px-1.5 py-0.5 font-medium text-memory">
-                            used in this answer
-                          </span>
+                          <Tooltip content="Retrieved live by EverOS and used to shape this answer.">
+                            <span className="cursor-help rounded-full bg-memory/12 px-1.5 py-0.5 font-medium text-memory">
+                              used in this answer
+                            </span>
+                          </Tooltip>
                         )}
                       </div>
                     </div>

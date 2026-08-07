@@ -1,5 +1,5 @@
-import type { AskResponse, Dashboard, Memory } from "@/lib/types";
-import { FOOD_BREAKDOWN, money, pctChange } from "@/lib/finance/data";
+import type { AskResponse, Category, Dashboard, Memory } from "@/lib/types";
+import { money, pctChange } from "@/lib/finance/data";
 
 /**
  * The CFO's answer engine.
@@ -7,6 +7,11 @@ import { FOOD_BREAKDOWN, money, pctChange } from "@/lib/finance/data";
  * Deliberately deterministic: it reads the real figures and the real memories
  * and composes an answer from them. No model call, so it is instant, free, and
  * always says something defensible on stage.
+ *
+ * Everything below reads from `dashboard.top_categories` — no category names
+ * or dollar amounts are hardcoded. That matters because the dashboard can be
+ * demo fixture data or a teammate's real Snowflake feed (FINANCE_SOURCE=backend)
+ * with completely different categories; the engine has to work for either.
  *
  * When the Cortex Agent is ready, swap this out behind the same function
  * signature — /api/ask is the only caller.
@@ -48,11 +53,61 @@ function parseItem(question: string): string | null {
 
 const cite = (m: Memory) => ({ id: m.id, text: m.text, source: m.source });
 
+/**
+ * Categories worth mentioning, ranked by how far over normal they ran.
+ * "Other" is a catch-all bucket, not a real category — never cite it.
+ * Tiny swings (<$15) are noise, not insight.
+ */
+function risingCategories(d: Dashboard, limit = 4): Category[] {
+  return [...d.top_categories]
+    .filter((c) => c.name !== "Other" && c.amount - c.normal >= 15)
+    .sort((a, b) => b.amount - b.normal - (a.amount - a.normal))
+    .slice(0, limit);
+}
+
+/** Categories that moved the most in % terms — good for "what's unusual". */
+function mostVolatileCategories(d: Dashboard, limit = 2): Category[] {
+  return [...d.top_categories]
+    .filter((c) => c.name !== "Other" && Math.abs(c.amount - c.normal) >= 15)
+    .sort((a, b) => Math.abs(pctChange(b.amount, b.normal)) - Math.abs(pctChange(a.amount, a.normal)))
+    .slice(0, limit);
+}
+
+/**
+ * Loosely match a memory's category hint (e.g. "Food delivery") against a
+ * real dashboard category (e.g. "Food & Dining") by shared words. Memory
+ * categories can be more granular than what a dashboard actually reports —
+ * this is the seam between the two vocabularies.
+ */
+function matchCategory(d: Dashboard, hint: string | null | undefined): Category | null {
+  if (!hint) return null;
+  const hintWords = hint.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const scored = d.top_categories
+    .map((c) => {
+      const catWords = c.name.toLowerCase().split(/[^a-z]+/).filter(Boolean);
+      const overlap = hintWords.filter((w) => catWords.includes(w)).length;
+      return { c, overlap };
+    })
+    .filter((s) => s.overlap > 0)
+    .sort((a, b) => b.overlap - a.overlap);
+  return scored[0]?.c ?? null;
+}
+
+function describeCategory(c: Category): string {
+  const diff = c.amount - c.normal;
+  return `${money(diff)} above your normal — ${money(c.amount)} this month against a typical ${money(c.normal)}`;
+}
+
+/** "3 weeks" / "1 week" / "less than a week" — never "0 weeks". */
+function weeksPhrase(weeks: number): string {
+  const rounded = Math.round(weeks);
+  if (rounded <= 0) return "less than a week";
+  if (rounded === 1) return "1 week";
+  return `${rounded} weeks`;
+}
+
 export function financialContext(d: Dashboard) {
-  // "Other" is a catch-all, never a useful answer to "what moved?".
-  const biggest = [...d.top_categories]
-    .filter((c) => c.name !== "Other")
-    .sort((a, b) => b.amount - b.normal - (a.amount - a.normal))[0];
+  const [biggest] = risingCategories(d, 1);
   return {
     monthly_spend: d.monthly_spend,
     average_monthly_spend: d.average_spend,
@@ -75,38 +130,59 @@ export function answerQuestion(
 
   const delta = dashboard.monthly_spend - dashboard.average_spend;
   const deltaPct = pctChange(dashboard.monthly_spend, dashboard.average_spend);
-  const delivery = FOOD_BREAKDOWN[0];
-  const groceries = FOOD_BREAKDOWN[1];
+
+  // Dashboard categories that match something the user asked to protect —
+  // excluded from anything this engine recommends cutting.
+  const protectedCategoryNames = new Set(
+    protectedMems
+      .map((m) => matchCategory(dashboard, m.category)?.name)
+      .filter(Boolean) as string[]
+  );
 
   switch (intent) {
     case "cut": {
       const lines: string[] = [];
       const used: Memory[] = [];
 
-      // Respect what the user has protected before recommending anything.
       const protectedNames = protectedMems.map((m) => m.category!);
       if (protectedNames.length) {
-        const list = protectedNames.join(" or ");
         lines.push(
-          `I wouldn't start with ${list.toLowerCase()} — you've told me that's a priority, so I've left it out of this.`
+          `I wouldn't start with ${protectedNames.join(" or ").toLowerCase()} — you've told me that's a priority, so I've left it out of this.`
         );
         used.push(...protectedMems);
       }
 
-      lines.push(
-        `Your clearest opportunity is food delivery. It's ${money(delivery.change)} above your normal — ${money(delivery.amount)} this month against a typical ${money(delivery.normal)}.`
+      const candidates = risingCategories(dashboard).filter(
+        (c) => !protectedCategoryNames.has(c.name)
       );
+      const opportunity = candidates[0];
+
+      if (!opportunity) {
+        lines.push(
+          "Nothing is running noticeably over normal right now — this was a pretty average month. I'd hold off cutting anything until something actually moves."
+        );
+        return { answer: lines.join("\n\n"), memories_used: used.map(cite), financial_context: ctx };
+      }
+
       lines.push(
-        `It's easy to miss on the dashboard: groceries fell ${money(groceries.change)} at the same time, so Food & Dining as a whole only looks ${money(95)} higher. This is a substitution, not extra appetite.`
+        `Your clearest opportunity is ${opportunity.name.toLowerCase()}. It's ${describeCategory(opportunity)}.`
       );
+
+      const runnerUp = candidates[1];
+      if (runnerUp) {
+        lines.push(
+          `After that, ${runnerUp.name.toLowerCase()} is running ${money(runnerUp.amount - runnerUp.normal)} over normal too — worth a look if you want to go further.`
+        );
+      }
 
       if (reduceMems.length) used.push(...reduceMems);
 
       const goal = dashboard.savings_goal;
+      const oppDelta = opportunity.amount - opportunity.normal;
       if (goal) {
-        const weeks = Math.round((delivery.change / goal.monthly_pace) * 4.33);
+        const weeks = (oppDelta / goal.monthly_pace) * 4.33;
         lines.push(
-          `Bringing delivery back to normal would free up about ${money(delivery.change)} a month — roughly ${weeks} week${weeks === 1 ? "" : "s"} closer to your ${goal.label.toLowerCase()}.`
+          `Bringing ${opportunity.name.toLowerCase()} back to normal would free up about ${money(oppDelta)} a month — roughly ${weeksPhrase(weeks)} closer to your ${goal.label.toLowerCase()}.`
         );
         if (goalMems.length) used.push(...goalMems);
       }
@@ -116,28 +192,36 @@ export function answerQuestion(
         memories_used: used.map(cite),
         financial_context: ctx,
         evidence: [
-          { label: "Food delivery", value: `+${money(delivery.change)}`, tone: "up" },
-          { label: "Groceries", value: `−${money(groceries.change)}`, tone: "down" },
-          { label: "Orders this month", value: "19 vs 6", tone: "up" },
+          { label: opportunity.name, value: `+${money(oppDelta)}`, tone: "up" },
+          ...(runnerUp
+            ? [{ label: runnerUp.name, value: `+${money(runnerUp.amount - runnerUp.normal)}`, tone: "up" as const }]
+            : []),
         ],
       };
     }
 
     case "why_more": {
-      const others = dashboard.top_categories
-        .filter((c) => c.amount - c.normal > 0 && c.name !== "Food & Dining")
-        .sort((a, b) => b.amount - b.normal - (a.amount - a.normal))
-        .slice(0, 3)
-        .map((c) =>
-          c.name === "Other"
-            ? `${money(c.amount - c.normal)} uncategorised`
-            : `${money(c.amount - c.normal)} more on ${c.name.toLowerCase()}`
-        );
+      const rising = risingCategories(dashboard, 4);
+      const [top, ...rest] = rising;
+
+      if (!top) {
+        return {
+          answer: `You're actually right in line with your normal this month — ${money(dashboard.monthly_spend)} against a typical ${money(dashboard.average_spend)}. Nothing stands out.`,
+          memories_used: [],
+          financial_context: ctx,
+        };
+      }
+
+      const restList = rest
+        .map((c) => `${money(c.amount - c.normal)} more on ${c.name.toLowerCase()}`)
+        .join(", ");
 
       const lines = [
         `You're ${money(delta)} above your normal month — ${money(dashboard.monthly_spend)} against a typical ${money(dashboard.average_spend)}, about ${deltaPct}% more.`,
-        `The single biggest driver is food delivery, up ${money(delivery.change)}. Groceries dropped ${money(groceries.change)} in the same period, which is why the Food category only shows ${money(95)} of it.`,
-        `The rest is spread thin: ${others.join(", ")}. Nothing there looks out of character.`,
+        `The single biggest driver is ${top.name.toLowerCase()}, up ${money(top.amount - top.normal)}.`,
+        rest.length
+          ? `The rest is spread thin: ${restList}. Nothing there looks out of character.`
+          : `Everything else is close to normal — this is really a one-category story.`,
       ];
 
       return {
@@ -146,27 +230,64 @@ export function answerQuestion(
         financial_context: ctx,
         evidence: [
           { label: "Above normal", value: `+${money(delta)}`, tone: "up" },
-          { label: "Food delivery", value: `+${money(delivery.change)}`, tone: "up" },
+          { label: top.name, value: `+${money(top.amount - top.normal)}`, tone: "up" },
           { label: "Savings rate", value: `${dashboard.savings_rate}%`, tone: "flat" },
         ],
       };
     }
 
     case "unusual": {
+      const volatile = mostVolatileCategories(dashboard, 2);
+
+      if (volatile.length === 0) {
+        return {
+          answer:
+            "Nothing really stands out — every category is close enough to your normal that this reads as an ordinary month.",
+          memories_used: [],
+          financial_context: ctx,
+        };
+      }
+
       const lines = [
-        `Two things stand out this month.`,
-        `**Food delivery.** 19 orders against your usual 6 — ${money(delivery.amount)} versus a normal ${money(delivery.normal)}. That's the clearest break from your pattern.`,
-        `**Three subscriptions, $48 a month,** with no activity in 60 days. Small, but it's money leaving for nothing.`,
-        `Everything else reads like a normal month for you. Housing, transport and health are all within a few dollars of typical.`,
+        volatile.length > 1
+          ? "Two things stand out this month."
+          : "One thing stands out this month.",
       ];
+      volatile.forEach((c, i) => {
+        const diff = c.amount - c.normal;
+        const pct = pctChange(c.amount, c.normal);
+        const direction = diff > 0 ? "up" : "down";
+        const tail =
+          i === 0
+            ? "That's the clearest break from your usual pattern."
+            : "That's the next biggest break from pattern — smaller, but still worth a glance.";
+        lines.push(
+          `**${c.name}.** ${money(c.amount)} against a normal ${money(c.normal)} — ${direction} ${Math.abs(pct)}%. ${tail}`
+        );
+      });
+      // Only reassure about "everything else" if that's actually true —
+      // don't claim categories are close to normal when they aren't.
+      const rest = dashboard.top_categories.filter(
+        (c) => c.name !== "Other" && !volatile.some((v) => v.name === c.name)
+      );
+      const restIsQuiet = rest.every(
+        (c) => Math.abs(c.amount - c.normal) < 20 || Math.abs(pctChange(c.amount, c.normal)) < 10
+      );
+      lines.push(
+        restIsQuiet
+          ? "Everything else reads like a normal month for you — close to typical."
+          : "There's some movement elsewhere too, but these are the two clearest breaks from your pattern."
+      );
+
       return {
         answer: lines.join("\n\n"),
         memories_used: [],
         financial_context: ctx,
-        evidence: [
-          { label: "Delivery orders", value: "19 vs 6", tone: "up" },
-          { label: "Idle subscriptions", value: "$48/mo", tone: "up" },
-        ],
+        evidence: volatile.map((c) => ({
+          label: c.name,
+          value: `${c.amount - c.normal > 0 ? "+" : "−"}${money(Math.abs(c.amount - c.normal))}`,
+          tone: c.amount - c.normal > 0 ? ("up" as const) : ("down" as const),
+        })),
       };
     }
 
@@ -185,7 +306,7 @@ export function answerQuestion(
         };
       }
 
-      const weeksDelay = Math.round((amount / pace) * 4.33);
+      const weeksDelay = (amount / pace) * 4.33;
       const monthsOfSaving = amount / pace;
       const affordable = monthsOfSaving <= 1.5;
       const stretch = monthsOfSaving > 1.5 && monthsOfSaving <= 3;
@@ -209,23 +330,33 @@ export function answerQuestion(
 
       if (goal) {
         lines.push(
-          `You're putting away about ${money(pace)} a month and you've got ${money(goal.saved)} of your ${money(goal.target)} ${goal.label.toLowerCase()}. Buying ${thing} pushes that goal back by roughly ${weeksDelay} week${weeksDelay === 1 ? "" : "s"}.`
+          `You're putting away about ${money(pace)} a month and you've got ${money(goal.saved)} of your ${money(goal.target)} ${goal.label.toLowerCase()}. Buying ${thing} pushes that goal back by roughly ${weeksPhrase(weeksDelay)}.`
         );
         if (goalMems.length) used.push(...goalMems);
       }
 
       // Fund it from somewhere they've already said they're happy to cut —
-      // but only when that's a realistic plan, not a 3-year one.
-      const monthsOfDelivery = Math.ceil(amount / delivery.change);
-      if (reduceMems.length && monthsOfDelivery <= 6) {
-        lines.push(
-          `If you want it without losing ground: you told me you'd rather cut food delivery, and that's running ${money(delivery.change)} above normal. ${monthsOfDelivery} month${monthsOfDelivery === 1 ? "" : "s"} back at your usual rate would cover it without touching savings.`
-        );
-        used.push(...reduceMems);
-      } else if (reduceMems.length) {
-        lines.push(
-          `Cutting food delivery back to normal — which you've said you'd rather do — saves ${money(delivery.change)} a month. Worth doing regardless, but it won't fund this on its own.`
-        );
+      // only if that category actually shows a real, meaningful surplus.
+      if (reduceMems.length) {
+        const match = matchCategory(dashboard, reduceMems[0].category);
+        const surplus = match ? match.amount - match.normal : 0;
+
+        if (match && surplus >= 15) {
+          const months = Math.ceil(amount / surplus);
+          if (months <= 6) {
+            lines.push(
+              `If you want it without losing ground: you told me you'd rather cut ${match.name.toLowerCase()}, and that's running ${money(surplus)} above normal. ${months} month${months === 1 ? "" : "s"} back at your usual rate would cover it without touching savings.`
+            );
+          } else {
+            lines.push(
+              `Cutting ${match.name.toLowerCase()} back to normal — which you've said you'd rather do — saves ${money(surplus)} a month. Worth doing regardless, but it won't fund this on its own.`
+            );
+          }
+        } else {
+          lines.push(
+            `You've told me you'd rather cut back elsewhere than touch this — that preference stands, even though it's not one of the bigger swings this month.`
+          );
+        }
         used.push(...reduceMems);
       }
 
@@ -243,16 +374,21 @@ export function answerQuestion(
         evidence: [
           { label: "Purchase", value: money(amount), tone: "flat" },
           { label: "Monthly saving", value: money(pace), tone: "flat" },
-          { label: "Goal delay", value: `~${weeksDelay} weeks`, tone: "up" },
+          { label: "Goal delay", value: weeksPhrase(weeksDelay), tone: "up" },
         ],
       };
     }
 
     default: {
       const top = dashboard.top_categories[0];
+      const [notable] = risingCategories(dashboard, 1);
       const lines = [
         `You've spent ${money(dashboard.monthly_spend)} so far this month — ${delta >= 0 ? `${money(delta)} above` : `${money(delta)} below`} your normal, with a ${dashboard.savings_rate}% savings rate.`,
-        `${top.name} is your largest category at ${money(top.amount)}. The thing actually worth your attention is food delivery, which is ${money(delivery.change)} above normal.`,
+        !notable
+          ? `${top.name} is your largest category at ${money(top.amount)}. Nothing is running noticeably over normal right now.`
+          : notable.name === top.name
+            ? `${top.name} is both your largest category and the one running furthest over normal — ${money(notable.amount - notable.normal)} above typical.`
+            : `${top.name} is your largest category at ${money(top.amount)}. The thing actually worth your attention is ${notable.name.toLowerCase()}, which is ${money(notable.amount - notable.normal)} above normal.`,
         `Ask me what to cut, why this month ran high, or whether you can afford something you're considering.`,
       ];
       return {

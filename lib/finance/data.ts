@@ -32,25 +32,6 @@ export const DEMO_DASHBOARD: Dashboard = {
   },
 };
 
-/**
- * Merchant-level detail inside Food & Dining.
- *
- * This is what lets the CFO say something a budgeting app can't: the category
- * only moved +$95, but that hides delivery being up $284 while groceries fell.
- */
-export const FOOD_BREAKDOWN = [
-  { name: "Food delivery", amount: 431, normal: 147, change: 284 },
-  { name: "Groceries", amount: 96, normal: 285, change: -189 },
-  { name: "Restaurants", amount: 93, normal: 93, change: 0 },
-];
-
-/** Individual transactions that back up the "unusual" answer. */
-export const NOTABLE_TRANSACTIONS = [
-  { merchant: "DoorDash", count: 19, amount: 431, note: "19 orders, up from 6" },
-  { merchant: "Unused subscriptions", count: 3, amount: 48, note: "no activity in 60 days" },
-  { merchant: "Airline — Lisbon", count: 1, amount: 410, note: "booked, one-off" },
-];
-
 export function pctChange(current: number, normal: number): number {
   if (normal === 0) return 0;
   return Math.round(((current - normal) / normal) * 100);

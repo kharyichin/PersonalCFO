@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Tooltip from "./ui/Tooltip";
 
 export type ChatMessage = {
   id: string;
@@ -205,9 +206,11 @@ export default function ChatPanel({
                   <div className="mb-2.5 flex items-center gap-2">
                     <span className="eyebrow">Your CFO</span>
                     {m.lookup && m.lookup.recalled > 0 && (
-                      <span className="rounded-full bg-memory-soft px-2 py-0.5 text-[10px] font-medium text-memory">
-                        recalled {m.lookup.recalled} from EverOS · {m.lookup.ms}ms
-                      </span>
+                      <Tooltip content="A live EverOS search for this exact question — not scripted.">
+                        <span className="cursor-help rounded-full bg-memory-soft px-2 py-0.5 text-[10px] font-medium text-memory">
+                          recalled {m.lookup.recalled} from EverOS · {m.lookup.ms}ms
+                        </span>
+                      </Tooltip>
                     )}
                   </div>
 

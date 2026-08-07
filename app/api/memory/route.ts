@@ -8,6 +8,7 @@ import {
   resetMemories,
 } from "@/lib/memory-store";
 import { extractMemory } from "@/lib/cfo/memory-extract";
+import { loadDashboard } from "@/lib/finance/source";
 import type { MemoryRequest } from "@/lib/types";
 
 /** GET /api/memory?user_id=demo_user — what the CFO remembers. */
@@ -27,7 +28,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "memory is required" }, { status: 400 });
   }
 
-  const parsed = extractMemory(text);
+  const dashboard = await loadDashboard();
+  const parsed = extractMemory(
+    text,
+    dashboard.top_categories.map((c) => c.name)
+  );
   const id = `mem-${Date.now()}`;
   const sessionId = `cfo-${userId}-${Date.now()}`;
 

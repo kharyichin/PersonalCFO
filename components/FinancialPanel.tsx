@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Dashboard } from "@/lib/types";
 import { money, pctChange } from "@/lib/finance/data";
+import Tooltip from "./ui/Tooltip";
 
 /** Counts up once on mount. One small flourish, not a light show. */
 function useCountUp(target: number, duration = 750) {
@@ -76,17 +77,21 @@ export default function FinancialPanel({ data }: { data: Dashboard | null }) {
   // biggest — housing is always biggest and never worth mentioning. "Other" is
   // excluded too: a catch-all bucket swinging is noise, not an insight.
   const notable = [...data.top_categories]
-    .filter((c) => c.name !== "Other" && c.amount >= 100)
+    .filter((c) => c.name !== "Other" && c.amount - c.normal >= 15)
     .sort((a, b) => pctChange(b.amount, b.normal) - pctChange(a.amount, a.normal))[0];
-  const notablePct = pctChange(notable.amount, notable.normal);
+  const notablePct = notable ? pctChange(notable.amount, notable.normal) : 0;
+  const notableDiff = notable ? notable.amount - notable.normal : 0;
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-baseline justify-between px-7 pb-3 pt-5">
         <span className="eyebrow">Your money</span>
-        <span className="rounded-full border border-line bg-surface px-2 py-0.5 text-[10px] font-medium tracking-wide text-ink-faint">
-          Snowflake
-        </span>
+        <Tooltip content="Live data from Snowflake — not typed in." align="right">
+
+          <span className="cursor-help rounded-full border border-line bg-surface px-2 py-0.5 text-[10px] font-medium tracking-wide text-ink-faint">
+            Snowflake
+          </span>
+        </Tooltip>
       </header>
 
       <div className="flex-1 overflow-y-auto scroll-quiet px-7 pb-4">
@@ -157,20 +162,18 @@ export default function FinancialPanel({ data }: { data: Dashboard | null }) {
         </div>
 
         {/* Insight */}
-        <div
-          className="mt-4 rounded-xl border border-line bg-surface p-3 animate-rise"
-          style={{ animationDelay: "260ms" }}
-        >
-          <div className="eyebrow mb-1.5 text-terra">Worth knowing</div>
-          <p className="text-[13px] leading-relaxed text-ink">
-            {notable.name} is {Math.abs(notablePct)}% above your normal spending
-            this month.
-          </p>
-          <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
-            Most of that is food delivery — {money(284)} more than usual, while
-            groceries fell {money(189)}.
-          </p>
-        </div>
+        {notable && (
+          <div
+            className="mt-4 rounded-xl border border-line bg-surface p-3 animate-rise"
+            style={{ animationDelay: "260ms" }}
+          >
+            <div className="eyebrow mb-1.5 text-terra">Worth knowing</div>
+            <p className="text-[13px] leading-relaxed text-ink">
+              {notable.name} is {Math.abs(notablePct)}% above your normal
+              spending this month — {money(notableDiff)} more than usual.
+            </p>
+          </div>
+        )}
 
         {data.savings_goal && (
           <div

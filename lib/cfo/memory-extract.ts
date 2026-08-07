@@ -16,6 +16,11 @@ export type ExtractedMemory = {
   quote: string;
 };
 
+/**
+ * Fallback vocabulary for common categories that don't show up in every
+ * backend's category list at all (e.g. "food delivery" is a merchant-level
+ * concept, not something Snowflake would report as its own category).
+ */
 const CATEGORY_WORDS: [RegExp, string][] = [
   [/\b(travel|trips?|flights?|holidays?|vacations?)\b/i, "Travel"],
   [/\b(food delivery|delivery|takeaway|takeout|doordash|uber\s?eats|deliveroo)\b/i, "Food delivery"],
@@ -27,7 +32,27 @@ const CATEGORY_WORDS: [RegExp, string][] = [
   [/\b(health|gym|fitness|medical)\b/i, "Health"],
 ];
 
-function categoryIn(text: string): string | null {
+const STOPWORDS = new Set(["and", "the", "for", "spend", "spending"]);
+
+/**
+ * Match against whatever categories the live dashboard actually reports
+ * first — this is what lets "reduce networking spend" tag as "Networking"
+ * even though that word appears nowhere in the static list below, because
+ * a teammate's real backend can report categories we never anticipated.
+ * Falls back to the static vocabulary for merchant-level concepts (like
+ * "food delivery") that a category list wouldn't contain on its own.
+ */
+function categoryIn(text: string, knownCategories: string[] = []): string | null {
+  const lower = text.toLowerCase();
+
+  for (const name of knownCategories) {
+    const words = name
+      .toLowerCase()
+      .split(/[^a-z]+/)
+      .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
+    if (words.some((w) => new RegExp(`\\b${w}`, "i").test(lower))) return name;
+  }
+
   for (const [re, name] of CATEGORY_WORDS) {
     if (re.test(text)) return name;
   }
@@ -56,11 +81,14 @@ export function looksLikeMemory(text: string): boolean {
   );
 }
 
-export function extractMemory(text: string): ExtractedMemory | null {
+export function extractMemory(
+  text: string,
+  knownCategories: string[] = []
+): ExtractedMemory | null {
   const quote = text.trim();
   if (!looksLikeMemory(quote)) return null;
 
-  const category = categoryIn(quote);
+  const category = categoryIn(quote, knownCategories);
 
   if (PROTECT_RE.test(quote)) {
     return {
@@ -107,17 +135,20 @@ export function extractMemory(text: string): ExtractedMemory | null {
  * "Don't cut travel, I'd rather reduce food delivery."
  * Returns them in the order they should appear.
  */
-export function extractAll(text: string): ExtractedMemory[] {
+export function extractAll(
+  text: string,
+  knownCategories: string[] = []
+): ExtractedMemory[] {
   const out: ExtractedMemory[] = [];
   const clauses = text.split(/[.;]|\bbut\b|\binstead\b|\brather\b/i).filter((c) => c.trim().length > 6);
 
   for (const clause of clauses) {
-    const m = extractMemory(clause);
+    const m = extractMemory(clause, knownCategories);
     if (m && !out.some((o) => o.label === m.label)) out.push(m);
   }
 
   if (out.length === 0) {
-    const whole = extractMemory(text);
+    const whole = extractMemory(text, knownCategories);
     if (whole) out.push(whole);
   }
 
@@ -125,7 +156,7 @@ export function extractAll(text: string): ExtractedMemory[] {
   if (out.length === 1 && out[0].kind === "protect") {
     const tail = text.split(/\brather\b|\binstead\b/i)[1];
     if (tail) {
-      const second = extractMemory(`I want to reduce ${tail}`);
+      const second = extractMemory(`I want to reduce ${tail}`, knownCategories);
       if (second && second.label !== out[0].label) out.push(second);
     }
   }

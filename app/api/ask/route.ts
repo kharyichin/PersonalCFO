@@ -4,22 +4,8 @@ import { addMemory, getMemories, markExtracted } from "@/lib/memory-store";
 import { extractAll } from "@/lib/cfo/memory-extract";
 import { acknowledgeMemory, answerQuestion, financialContext } from "@/lib/cfo/engine";
 import { askCortex, cortexConfigured, toCortexMemories } from "@/lib/cortex";
-import { DEMO_DASHBOARD } from "@/lib/finance/data";
-import type { AskRequest, AskResponse, Dashboard } from "@/lib/types";
-
-async function loadDashboard(): Promise<Dashboard> {
-  if (process.env.FINANCE_SOURCE === "backend" && process.env.BACKEND_URL) {
-    try {
-      const res = await fetch(`${process.env.BACKEND_URL}/dashboard`, {
-        cache: "no-store",
-      });
-      if (res.ok) return (await res.json()) as Dashboard;
-    } catch {
-      // fall through to demo data
-    }
-  }
-  return DEMO_DASHBOARD;
-}
+import { loadDashboard } from "@/lib/finance/source";
+import type { AskRequest, AskResponse } from "@/lib/types";
 
 /**
  * POST /api/ask
@@ -41,7 +27,10 @@ export async function POST(request: Request) {
   const dashboard = await loadDashboard();
 
   // ---- Path 1: this message teaches the CFO something -------------------
-  const learned = extractAll(question);
+  const learned = extractAll(
+    question,
+    dashboard.top_categories.map((c) => c.name)
+  );
   if (learned.length > 0) {
     const sessionId = `cfo-${userId}-${Date.now()}`;
     const created = learned.map((l, i) => ({
@@ -75,12 +64,7 @@ export async function POST(request: Request) {
     const payload: AskResponse & { learned_all?: typeof created } = {
       answer,
       memories_used: [],
-      financial_context: {
-        monthly_spend: dashboard.monthly_spend,
-        average_monthly_spend: dashboard.average_spend,
-        savings_rate: dashboard.savings_rate,
-        largest_increase_category: "Food & Dining",
-      },
+      financial_context: financialContext(dashboard),
       learned: created[0],
       learned_all: created,
     };
