@@ -45,13 +45,21 @@ const STOPWORDS = new Set(["and", "the", "for", "spend", "spending"]);
 function categoryIn(text: string, knownCategories: string[] = []): string | null {
   const lower = text.toLowerCase();
 
+  // Leftmost match wins, not first-in-list-order — "I'd rather reduce food
+  // delivery than travel" should tag as food delivery (what's actually being
+  // reduced), not travel (which only appears later, as the contrast).
+  let best: { name: string; index: number } | null = null;
   for (const name of knownCategories) {
     const words = name
       .toLowerCase()
       .split(/[^a-z]+/)
       .filter((w) => w.length >= 3 && !STOPWORDS.has(w));
-    if (words.some((w) => new RegExp(`\\b${w}`, "i").test(lower))) return name;
+    for (const w of words) {
+      const m = new RegExp(`\\b${w}`, "i").exec(lower);
+      if (m && (!best || m.index < best.index)) best = { name, index: m.index };
+    }
   }
+  if (best) return best.name;
 
   for (const [re, name] of CATEGORY_WORDS) {
     if (re.test(text)) return name;
@@ -63,21 +71,39 @@ function categoryIn(text: string, knownCategories: string[] = []): string | null
 const PROTECT_RE =
   /(don'?t|do not|never|please don'?t)\b[^.!?]*\b(cut|reduce|touch|trim|lower|suggest cutting)\b|\bis (really |very |super |genuinely )?important to me\b|\bis a priority\b|\bmatters to me\b|\bnon-?negotiable\b/i;
 
+// No bare "reduce"/"spend less on" fallback here on purpose — that used to
+// match ANY message containing those words, including plain questions like
+// "How can I reduce my travel costs?". First-person framing is required.
 const REDUCE_RE =
-  /\b(i(')?d rather|i want to|i'?d like to|help me|trying to|want to)\b[^.!?]*\b(reduce|cut|spend less|cut back|lower)\b|\b(reduce|cut back on|spend less on)\b/i;
+  /\b(i(')?d rather|i want to|i'?d like to|help me|i'?m trying to|i want)\b[^.!?]*\b(reduce|cut|spend less|cut back|lower)\b/i;
 
 const GOAL_RE =
-  /\b(saving|save|savings)\b[^.!?]*\b(for|toward|towards)\b|\bsaving up\b|\bmy goal\b|\bgoal is\b/i;
+  /\b(i'?m|i am)\b[^.!?]*\b(saving|savings)\b[^.!?]*\b(for|toward|towards)\b|\bsaving up\b|\bmy goal\b|\bgoal is\b/i;
 
 const PREFERENCE_RE =
   /\b(i prefer|remember that|keep in mind|note that|for the record|i always|i usually)\b/i;
 
+/**
+ * Messages phrased as questions are answered, not stored — even when they
+ * contain words the patterns above would otherwise match on, like "reduce"
+ * or "save ... for". This is what stops "What should I cut?" or "How can I
+ * reduce my travel costs?" from silently hijacking the conversation into a
+ * memory-teaching acknowledgment instead of actually answering.
+ */
+const QUESTION_RE = /\?\s*$/;
+const QUESTION_STARTER_RE =
+  /^\s*(what|how|can|could|should|would|why|when|where|is|are|do|does|did|will|which|who)\b/i;
+
 export function looksLikeMemory(text: string): boolean {
+  const trimmed = text.trim();
+  if (QUESTION_RE.test(trimmed) || QUESTION_STARTER_RE.test(trimmed)) {
+    return false;
+  }
   return (
-    PROTECT_RE.test(text) ||
-    REDUCE_RE.test(text) ||
-    GOAL_RE.test(text) ||
-    PREFERENCE_RE.test(text)
+    PROTECT_RE.test(trimmed) ||
+    REDUCE_RE.test(trimmed) ||
+    GOAL_RE.test(trimmed) ||
+    PREFERENCE_RE.test(trimmed)
   );
 }
 
